@@ -170,8 +170,31 @@ class UpdateApplicationStatusView(generics.UpdateAPIView):
     permission_classes = [IsEmployer]
 
     def get_queryset(self):
-        # ✅ Short circuit for swagger schema generation
+        # Short circuit for swagger schema generation
         if getattr(self, 'swagger_fake_view', False):
             return Application.objects.none()
-        return Application.objects.filter(job__employer=self.request.user)         
-            
+        return Application.objects.filter(job__employer=self.request.user)
+
+    def update(self, request, *args, **kwargs):
+        application = self.get_object()
+        serializer = self.get_serializer(
+            application,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        # Trigger email to job seeker
+        send_application_status_email.delay(
+            applicant_email=application.applicant.email,
+            applicant_name=application.applicant.username,
+            job_title=application.job.title,
+            status=request.data.get('status'),
+            employer_note=request.data.get('employer_note')
+        )
+
+        return Response({
+            "message": "Application status updated successfully.",
+            "application": serializer.data  # ✅ this is what test checks
+        }, status=status.HTTP_200_OK)    
