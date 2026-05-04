@@ -150,9 +150,16 @@ SIMPLE_JWT = {
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React dev server
-     "https://your-app.vercel.app", 
+    #  "https://your-app.vercel.app", 
+    "https://job-portal-career-stack-frontend.vercel.app",  # your Vercel URL
+    
 ]
 
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://job-portal-career-stack-frontend.vercel.app",  # your Vercel URL
+    "http://localhost:3000",
+]
 # Why CORS? Browsers block requests between different ports by default.
 # React runs on port 3000, Django on 8000.
 # This setting tells Django to allow React to make requests.
