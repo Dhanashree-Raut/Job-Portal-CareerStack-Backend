@@ -150,6 +150,7 @@ SIMPLE_JWT = {
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React dev server
+     "https://your-app.vercel.app", 
 ]
 
 # Why CORS? Browsers block requests between different ports by default.
