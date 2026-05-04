@@ -152,6 +152,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React dev server
     #  "https://your-app.vercel.app", 
     "https://job-portal-career-stack-frontend.vercel.app",  # your Vercel URL
+    "https://job-portal-careerstack-backend-production.up.railway.app",
     
 ]
 
@@ -159,7 +160,14 @@ CORS_ALLOWED_ORIGINS = [
 CSRF_TRUSTED_ORIGINS = [
     "https://job-portal-career-stack-frontend.vercel.app",  # your Vercel URL
     "http://localhost:3000",
+    "https://job-portal-careerstack-backend-production.up.railway.app",
 ]
+
+# Add this too — allows all origins for API
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = True
+
+
 # Why CORS? Browsers block requests between different ports by default.
 # React runs on port 3000, Django on 8000.
 # This setting tells Django to allow React to make requests.
