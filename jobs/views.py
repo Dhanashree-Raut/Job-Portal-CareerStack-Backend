@@ -134,7 +134,7 @@ class ApplyJobView(generics.CreateAPIView):
             job=job
         )
 
-        send_application_received_email.delay(
+        send_application_received_email(
             employer_email=job.employer.email,
             employer_name=job.employer.username,
             job_title=job.title,
@@ -186,7 +186,7 @@ class UpdateApplicationStatusView(generics.UpdateAPIView):
         serializer.save()
 
         # Trigger email to job seeker
-        send_application_status_email.delay(
+        send_application_status_email(
             applicant_email=application.applicant.email,
             applicant_name=application.applicant.username,
             job_title=application.job.title,
