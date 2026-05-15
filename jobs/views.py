@@ -17,7 +17,9 @@ from .permissions import (
 
 from notifications.tasks import (
     send_application_received_email,
-    send_application_status_email
+    send_application_confirmation_email,
+    send_application_status_email,
+    send_job_created_email,
 )
 
 # -----------------------------------------------
@@ -33,31 +35,20 @@ class JobListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsEmployerOrReadOnly]
 
     def get_queryset(self):
-        """
-        Custom queryset with filtering support.
-        Job seekers can filter jobs by various parameters.
-        """
-        # Start with all active jobs
         queryset = Job.objects.filter(status='active')
 
-        # Get filter parameters from URL query string
-        # Example: /api/jobs/?job_type=full_time&location=Mumbai
         job_type = self.request.query_params.get('job_type')
         location = self.request.query_params.get('location')
         experience_level = self.request.query_params.get('experience_level')
         search = self.request.query_params.get('search')
 
-        # Apply filters only if parameter is provided
         if job_type:
             queryset = queryset.filter(job_type=job_type)
         if location:
-            # icontains = case insensitive contains
-            # So 'mumbai' matches 'Mumbai' or 'MUMBAI'
             queryset = queryset.filter(location__icontains=location)
         if experience_level:
             queryset = queryset.filter(experience_level=experience_level)
         if search:
-            # Search in title and description
             from django.db.models import Q
             queryset = queryset.filter(
                 Q(title__icontains=search) |
@@ -68,17 +59,20 @@ class JobListCreateView(generics.ListCreateAPIView):
         return queryset
 
     def perform_create(self, serializer):
-        """
-        perform_create is called when a new job is being saved.
-        We automatically set the employer to the logged in user.
-        So employer never needs to be sent in request body.
-        """
-        # Check if logged in user is an employer
         if not self.request.user.role == 'employer':
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only employers can post jobs.")
 
-        serializer.save(employer=self.request.user)
+        job = serializer.save(employer=self.request.user)
+
+        # ✅ Email employer confirming job was posted
+        send_job_created_email.delay(
+            employer_email=self.request.user.email,
+            employer_name=self.request.user.username,
+            job_title=job.title,
+            location=job.location,
+            job_type=job.job_type,
+        )
 
 
 class JobDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -113,7 +107,7 @@ class ApplyJobView(generics.CreateAPIView):
     """
     serializer_class = ApplicationSerializer
     permission_classes = [IsJobSeeker]
-    
+
     def perform_create(self, serializer):
         job = get_object_or_404(Job, id=self.kwargs['job_id'])
 
@@ -121,7 +115,6 @@ class ApplyJobView(generics.CreateAPIView):
             from rest_framework.exceptions import ValidationError
             raise ValidationError("This job is no longer accepting applications.")
 
-        # ✅ Check for duplicate application here instead of serializer
         if Application.objects.filter(
             applicant=self.request.user,
             job=job
@@ -129,17 +122,27 @@ class ApplyJobView(generics.CreateAPIView):
             from rest_framework.exceptions import ValidationError
             raise ValidationError("You have already applied to this job.")
 
-        application = serializer.save(
+        serializer.save(
             applicant=self.request.user,
             job=job
         )
 
-        send_application_received_email(
+        # ✅ Email employer — new application received
+        send_application_received_email.delay(
             employer_email=job.employer.email,
             employer_name=job.employer.username,
             job_title=job.title,
-            applicant_name=self.request.user.username
+            applicant_name=self.request.user.username,
         )
+
+        # ✅ Email job seeker — application confirmation
+        send_application_confirmation_email.delay(
+            applicant_email=self.request.user.email,
+            applicant_name=self.request.user.username,
+            job_title=job.title,
+            company_name=job.employer.company_name or job.employer.username,
+        )
+
 
 class JobApplicationListView(generics.ListAPIView):
     serializer_class = ApplicationSerializer
@@ -154,6 +157,7 @@ class JobApplicationListView(generics.ListAPIView):
             employer=self.request.user
         )
         return Application.objects.filter(job=job)
+
 
 class MyApplicationsView(generics.ListAPIView):
     serializer_class = ApplicationSerializer
@@ -170,7 +174,6 @@ class UpdateApplicationStatusView(generics.UpdateAPIView):
     permission_classes = [IsEmployer]
 
     def get_queryset(self):
-        # Short circuit for swagger schema generation
         if getattr(self, 'swagger_fake_view', False):
             return Application.objects.none()
         return Application.objects.filter(job__employer=self.request.user)
@@ -185,16 +188,16 @@ class UpdateApplicationStatusView(generics.UpdateAPIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        # Trigger email to job seeker
-        send_application_status_email(
+        # ✅ Email job seeker — status updated
+        send_application_status_email.delay(
             applicant_email=application.applicant.email,
             applicant_name=application.applicant.username,
             job_title=application.job.title,
             status=request.data.get('status'),
-            employer_note=request.data.get('employer_note')
+            employer_note=request.data.get('employer_note'),
         )
 
         return Response({
             "message": "Application status updated successfully.",
-            "application": serializer.data  # ✅ this is what test checks
-        }, status=status.HTTP_200_OK)    
+            "application": serializer.data
+        }, status=status.HTTP_200_OK)

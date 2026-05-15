@@ -9,6 +9,7 @@ from .serializers import (
     UserProfileSerializer,
     ChangePasswordSerializer
 )
+from notifications.tasks import send_welcome_email
 
 
 class RegisterView(generics.CreateAPIView):
@@ -25,6 +26,16 @@ class RegisterView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+
+        # ✅ Send welcome email with account details (no password)
+        send_welcome_email.delay(
+            email=user.email,
+            username=user.username,
+            role=user.role,
+            phone=user.phone,
+            company_name=user.company_name,
+            skills=user.skills,
+        )
 
         # Generate JWT tokens for the new user immediately after register
         refresh = RefreshToken.for_user(user)
@@ -56,7 +67,6 @@ class LoginView(APIView):
                 "error": "Email and password are required."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # authenticate() checks email+password and returns user if valid
         user = authenticate(request, email=email, password=password)
         print(user)
 
@@ -70,7 +80,6 @@ class LoginView(APIView):
                 "error": "Account is disabled."
             }, status=status.HTTP_403_FORBIDDEN)
 
-        # Generate tokens
         refresh = RefreshToken.for_user(user)
 
         return Response({
@@ -114,7 +123,6 @@ class ProfileView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_object(self):
-        # Returns the currently logged in user
         return self.request.user
 
 
@@ -131,13 +139,11 @@ class ChangePasswordView(APIView):
 
         user = request.user
 
-        # Check if old password is correct
         if not user.check_password(serializer.validated_data['old_password']):
             return Response({
                 "error": "Old password is incorrect."
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Set new password
         user.set_password(serializer.validated_data['new_password'])
         user.save()
 
